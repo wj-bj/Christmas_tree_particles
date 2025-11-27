@@ -24,6 +24,8 @@
             overflow: hidden;
             font-family: 'Playfair Display', serif;
             color: var(--gold-light);
+            /* Prevent bounce on mobile */
+            overscroll-behavior: none;
         }
 
         #canvas-container {
@@ -60,7 +62,6 @@
             transform: translateY(-20px);
         }
         
-        /* Remove background gradient when immersive to clear view */
         .immersive-mode {
             background: transparent !important;
         }
@@ -94,7 +95,7 @@
             animation: fadeDown 1.5s ease-out forwards 0.8s;
         }
 
-        /* Controls */
+        /* Controls - Default Desktop */
         .controls {
             display: flex;
             gap: 20px;
@@ -104,6 +105,7 @@
             pointer-events: auto;
             opacity: 0;
             animation: fadeUp 1.5s ease-out forwards 1.2s;
+            flex-wrap: wrap; /* Allow wrap on smaller desktop windows */
         }
 
         .btn-group {
@@ -133,6 +135,8 @@
             display: inline-block;
             text-align: center;
             white-space: nowrap;
+            /* Prevent zoom on double tap on mobile */
+            touch-action: manipulation; 
         }
 
         button::before {
@@ -190,7 +194,7 @@
         }
 
         .modal-box {
-            background: rgba(2, 48, 32, 0.9);
+            background: rgba(2, 48, 32, 0.95);
             border: 1px solid var(--gold);
             padding: 40px 60px;
             display: flex;
@@ -200,6 +204,8 @@
             transform: translateY(20px);
             transition: transform 0.5s ease;
             text-align: center;
+            max-width: 90%;
+            box-sizing: border-box;
         }
 
         .custom-modal.visible .modal-box {
@@ -222,6 +228,7 @@
             font-size: 1.2rem;
             padding: 10px;
             width: 300px;
+            max-width: 100%;
             text-align: center;
             outline: none;
             transition: border-color 0.3s;
@@ -245,12 +252,59 @@
             letter-spacing: 0.2em;
             font-size: 0.8rem;
             animation: pulse 2s infinite;
+            text-align: center;
+            width: 100%;
         }
 
         @keyframes fadeDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
 
+        /* --- MOBILE RESPONSIVE STYLES --- */
+        @media (max-width: 768px) {
+            #ui {
+                padding: 20px;
+                padding-bottom: 30px; /* Safe area */
+            }
+
+            h1 {
+                font-size: 1.8rem; /* Smaller title */
+                letter-spacing: 0.15em;
+            }
+
+            .subtitle {
+                font-size: 0.75rem;
+            }
+
+            .controls {
+                flex-direction: column; /* Stack vertically on mobile */
+                width: 100%;
+                gap: 12px;
+                align-items: stretch; /* Full width buttons */
+                padding-bottom: 20px;
+            }
+
+            .btn-group {
+                width: 100%;
+            }
+
+            button {
+                width: 100%; /* Full width */
+                padding: 12px 0; /* Taller touch targets */
+                font-size: 0.9rem;
+            }
+
+            /* Modal adjustments */
+            .modal-box {
+                padding: 30px 20px;
+                width: 90%;
+            }
+            
+            .modal-input {
+                width: 100%;
+                font-size: 1rem;
+            }
+        }
     </style>
     <!-- React & Three Imports -->
     <script type="importmap">
@@ -284,7 +338,7 @@
 
     <div id="ui">
         <header id="main-header">
-            <h1 id="app-title">WJ Signature</h1>
+            <h1 id="app-title">Christmas Tree</h1>
             <div id="app-subtitle" class="subtitle">The Gilded Emerald Edition</div>
         </header>
         <div class="controls">
@@ -315,28 +369,22 @@
         import { EffectComposer, Bloom, Vignette, Noise, ToneMapping } from '@react-three/postprocessing';
 
         // --- Audio Infrastructure ---
-        // We use a hybrid approach: Streaming (Audio Element) for default music, 
-        // and BufferSource for user uploads (for compatibility with FileReader)
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const analyser = audioContext.createAnalyser();
         analyser.fftSize = 256;
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
         
-        // Track the current active source node to disconnect properly when switching
         let activeSourceNode = null; 
         
-        // Pre-create the default audio element for streaming (instant start)
         const defaultAudioEl = new Audio('https://cdn.pixabay.com/audio/2025/05/26/audio_95504c3693.mp3');
         defaultAudioEl.crossOrigin = "anonymous";
         defaultAudioEl.loop = true;
         
-        // Store the default MediaElementSource node (can only be created once per element)
         let defaultMediaElementSource = null;
 
         const useAudioData = () => {
             const frequency = useRef(0);
             useFrame(() => {
-                // Always update frequency data if analyzer is connected
                 analyser.getByteFrequencyData(dataArray);
                 const avg = dataArray.reduce((a, b) => a + b) / dataArray.length;
                 frequency.current = avg; 
@@ -646,7 +694,6 @@
                 const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
                 
                 // CRITICAL FIX: Only center Z axis to keep pivot correct
-                // Using center() on X/Y shifts the bounding box of a 5-point star, causing wobbling
                 geometry.computeBoundingBox();
                 const zCenter = (geometry.boundingBox.max.z - geometry.boundingBox.min.z) / 2;
                 geometry.translate(0, 0, -zCenter); // Center Z only
@@ -676,14 +723,34 @@
             );
         };
 
+        // --- Responsive Camera Controller ---
+        const ResponsiveCamera = () => {
+            const { camera, size } = useThree();
+            
+            useEffect(() => {
+                const isMobilePortrait = size.width < 768 && size.width < size.height;
+                
+                // If mobile portrait, pull camera back to fit the tree vertically
+                const targetZ = isMobilePortrait ? 35 : 20; 
+                
+                camera.position.z = targetZ;
+                camera.updateProjectionMatrix();
+                
+            }, [size.width, size.height, camera]);
+
+            return null;
+        };
+
         const Scene = ({ isTree }) => {
             return (
                 <>
                     <PerspectiveCamera makeDefault position={[0, 4, 20]} fov={50} />
+                    <ResponsiveCamera /> {/* Handle Mobile Resize */}
+                    
                     <OrbitControls 
                         enablePan={false} 
                         minDistance={10} 
-                        maxDistance={30} 
+                        maxDistance={50} 
                         maxPolarAngle={Math.PI / 1.5} 
                         autoRotate={true}
                         autoRotateSpeed={0.5}
@@ -804,8 +871,6 @@
                                 const source = audioContext.createBufferSource();
                                 source.buffer = buffer;
                                 source.connect(analyser);
-                                // Analyser is already connected to destination from setup, but good to ensure path
-                                // Note: we don't need to re-connect analyser to destination if it's already there
                                 
                                 source.loop = true;
                                 source.start(0);
